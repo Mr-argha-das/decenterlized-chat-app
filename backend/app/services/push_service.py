@@ -327,8 +327,14 @@ async def dispatch_push_for_new_message(
             continue
         if mem.is_muted:
             continue
-        if mem.muted_until and mem.muted_until > now:
-            continue
+        if mem.muted_until:
+            muted_until_utc = (
+                mem.muted_until.replace(tzinfo=timezone.utc)
+                if mem.muted_until.tzinfo is None
+                else mem.muted_until
+            )
+            if muted_until_utc > now:
+                continue
         eligible_user_ids.add(u.id)
 
     if not eligible_user_ids:

@@ -34,6 +34,16 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    if connection.dialect.name == "mysql":
+        connection.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS alembic_version ("
+            "version_num VARCHAR(128) NOT NULL, "
+            "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE alembic_version MODIFY COLUMN version_num VARCHAR(128) NOT NULL"
+        )
+
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
