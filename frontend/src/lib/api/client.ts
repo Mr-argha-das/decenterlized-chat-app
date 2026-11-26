@@ -17,6 +17,7 @@ export interface UserProfile {
   about: string;
   avatar_url: string | null;
   is_local: boolean;
+  is_admin?: boolean;
   is_online: boolean;
   last_seen_at: string | null;
   privacy_last_seen: PrivacyScope;
@@ -140,34 +141,123 @@ export interface ApiPeerSummary {
   has_blocked_me?: boolean;
 }
 
+export interface ApiReceiptEntry {
+  user_id: string;
+  global_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  delivered_at: string | null;
+  read_at: string | null;
+}
+
+export interface ApiGroupMember {
+  user_id: string;
+  username: string;
+  domain: string;
+  global_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  public_key: string;
+  role: "admin" | "member";
+  sender_color: string;
+  is_online: boolean;
+  joined_at: string;
+}
+
+export interface ApiGroupSummary {
+  id: string;
+  name: string;
+  description: string;
+  icon_url: string | null;
+  created_by_id: string | null;
+  key_version: number;
+  only_admins_can_send: boolean;
+  only_admins_can_edit_info: boolean;
+  my_role: "admin" | "member";
+  member_count: number;
+  invite_code: string | null;
+  members: ApiGroupMember[];
+  created_at: string;
+}
+
+export interface ApiGroupSenderKey {
+  id: string;
+  group_id: string;
+  sender_id: string;
+  sender_global_id: string;
+  sender_public_key: string;
+  recipient_id: string;
+  key_version: number;
+  wrapped_key: string;
+  nonce: string;
+  created_at: string;
+}
+
+export interface ApiGroupInviteInfo {
+  group_id: string;
+  invite_code: string;
+  invite_path: string;
+  invite_revoked_at: string | null;
+}
+
+export interface ApiGroupInvitePreview {
+  group_id: string;
+  name: string;
+  description: string;
+  icon_url: string | null;
+  member_count: number;
+  already_member: boolean;
+}
+
 export interface ApiEncryptedMessage {
   id: string;
   conversation_id: string;
   sender_id: string;
   sender_global_id: string;
+  sender_display_name?: string | null;
+  sender_color?: string | null;
   ciphertext: string;
   nonce: string;
   type: string;
   status: "sent" | "delivered" | "read";
+  sender_key_version?: number | null;
+  mentions?: string[];
+  system_event?: {
+    action?: string;
+    actor_id?: string;
+    actor_name?: string;
+    target_id?: string;
+    target_name?: string;
+    text?: string;
+  } | null;
+  attachment_id?: string | null;
   reply_to_id: string | null;
   client_msg_id?: string | null;
   created_at: string;
   edited_at: string | null;
   deleted_at: string | null;
   deleted_for_everyone: boolean;
+  expires_at?: string | null;
   delivered_at?: string | null;
   read_at?: string | null;
+  is_starred?: boolean;
+  read_by?: ApiReceiptEntry[];
+  delivered_to?: ApiReceiptEntry[];
 }
 
 export interface ApiConversation {
   id: string;
   type: "direct" | "group";
   name: string | null;
+  description?: string | null;
   icon_url: string | null;
   peer: ApiPeerSummary | null;
+  group?: ApiGroupSummary | null;
   unread_count: number;
   is_pinned: boolean;
   is_muted: boolean;
+  is_archived?: boolean;
+  disappearing_timer_seconds?: number;
   last_message_at: string | null;
   last_message: ApiEncryptedMessage | null;
   created_at: string;
@@ -188,6 +278,10 @@ export class ApiClientError extends Error {
     this.code = code;
     this.status = status;
   }
+}
+
+export function getApiBaseUrl(): string {
+  return "";
 }
 
 export async function apiFetch<T>(
@@ -231,3 +325,149 @@ export async function apiFetch<T>(
 
   return (await res.json()) as T;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 8: Federation Peer Status & Domain Policy Controls
+// ---------------------------------------------------------------------------
+export type FederationPolicyMode = "open" | "allowlist" | "denylist";
+
+export interface FederationPeerItem {
+  id: string;
+  domain: string;
+  node_url: string;
+  inbox_url: string | null;
+  public_key_ed25519: string;
+  status: string;
+  is_trusted: boolean;
+  is_blocked: boolean;
+  last_seen_at: string | null;
+  last_error: string | null;
+  failure_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FederationDomainRuleItem {
+  id: string;
+  domain: string;
+  rule: "allow" | "block";
+  note: string | null;
+  created_at: string;
+}
+
+export interface FederationOutboxItem {
+  id: string;
+  event_id: string | null;
+  target_domain: string;
+  target_inbox_url: string;
+  event_type: string;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  next_retry_at: string;
+  last_error: string | null;
+  dead_lettered_at: string | null;
+  created_at: string;
+  delivered_at: string | null;
+}
+
+export interface FederationStatusResponse {
+  domain: string;
+  app_name: string;
+  node_url: string;
+  public_key_ed25519: string;
+  federation_enabled: boolean;
+  policy_mode: FederationPolicyMode;
+  can_manage: boolean;
+  rules: FederationDomainRuleItem[];
+  peers: FederationPeerItem[];
+  outbox_stats: {
+    pending: number;
+    processing: number;
+    delivered: number;
+    dead_letter: number;
+  };
+  recent_outbox: FederationOutboxItem[];
+  cached_remote_users: number;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9: 24-Hour Encrypted Statuses & Starred Messages
+// ---------------------------------------------------------------------------
+export type StatusPrivacyMode = "contacts" | "except" | "only";
+export type StatusFontFamily = "sans" | "serif" | "mono" | "display";
+
+export interface ApiStatusViewer {
+  user_id: string;
+  global_id: string;
+  display_name: string;
+  avatar_url?: string | null;
+  viewed_at: string;
+}
+
+export interface ApiStatusItem {
+  id: string;
+  user_id: string;
+  author_global_id: string;
+  author_display_name: string;
+  author_avatar_url: string | null;
+  author_public_key: string;
+  media_type: "text" | "image" | "video";
+  ciphertext: string;
+  nonce: string;
+  my_key_envelope: {
+    wrapped_key: string;
+    wrap_nonce: string;
+  } | null;
+  background_style: string | null;
+  font_family: StatusFontFamily;
+  attachment_id: string | null;
+  privacy_mode: StatusPrivacyMode;
+  is_viewed: boolean;
+  view_count: number;
+  viewers: ApiStatusViewer[];
+  created_at: string;
+  expires_at: string;
+}
+
+export interface ApiUserStatusBundle {
+  user_id: string;
+  global_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  public_key: string;
+  is_muted: boolean;
+  all_viewed: boolean;
+  latest_at: string;
+  statuses: ApiStatusItem[];
+}
+
+export interface ApiStatusPrivacy {
+  mode: StatusPrivacyMode;
+  except_user_ids: string[];
+  only_user_ids: string[];
+}
+
+export interface ApiStatusFeed {
+  my_statuses: ApiStatusItem[];
+  recent_updates: ApiUserStatusBundle[];
+  muted_updates: ApiUserStatusBundle[];
+  privacy: ApiStatusPrivacy;
+}
+
+export interface ApiStatusRecipientCandidate {
+  user_id: string;
+  global_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  public_key: string;
+}
+
+export interface ApiStarredMessageItem {
+  starred_at: string;
+  conversation_id: string;
+  conversation_name: string | null;
+  message: ApiEncryptedMessage;
+}
+
+

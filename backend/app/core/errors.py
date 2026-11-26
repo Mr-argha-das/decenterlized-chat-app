@@ -33,9 +33,15 @@ def error_envelope(code: str, message: str, details: Any = None) -> dict[str, An
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
+        headers: dict[str, str] = {}
+        if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS and isinstance(exc.details, dict):
+            retry_after = exc.details.get("retry_after_seconds")
+            if retry_after is not None:
+                headers["Retry-After"] = str(retry_after)
         return JSONResponse(
             status_code=exc.status_code,
             content=error_envelope(exc.code, exc.message, exc.details),
+            headers=headers or None,
         )
 
     @app.exception_handler(RequestValidationError)

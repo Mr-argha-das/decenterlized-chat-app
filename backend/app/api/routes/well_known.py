@@ -10,7 +10,11 @@ from app.core.rate_limit import api_rate_limit
 from app.core.security import get_node_public_key_b64
 from app.db.session import get_db_session
 from app.models.entities import User
-from app.schemas.user import WellKnownNodeKeyOut, WellKnownUserOut
+from app.schemas.user import (
+    WellKnownNodeInfoOut,
+    WellKnownNodeKeyOut,
+    WellKnownUserOut,
+)
 
 router = APIRouter(prefix="/.well-known", tags=["federation-discovery"])
 
@@ -51,14 +55,23 @@ async def discover_user(
         )
 
     node_url = _resolve_node_url(request)
+    avatar_url: str | None = None
+    if user.avatar_url and user.privacy_profile_photo == "everyone":
+        avatar_url = (
+            user.avatar_url
+            if user.avatar_url.startswith(("http://", "https://"))
+            else f"{node_url}{user.avatar_url}"
+        )
+
     return WellKnownUserOut(
         id=user.global_id,
+        user_uuid=user.id,
         username=user.username,
         domain=user.domain,
         global_id=user.global_id,
         display_name=user.display_name,
         about=user.about,
-        avatar_url=user.avatar_url if user.privacy_profile_photo == "everyone" else None,
+        avatar_url=avatar_url,
         public_key=user.public_key,
         node=node_url,
         node_url=node_url,
@@ -81,4 +94,26 @@ async def get_node_key(request: Request) -> WellKnownNodeKeyOut:
         algorithm="Ed25519",
         public_key=get_node_public_key_b64(),
         federation_inbox_url=f"{node_url}/federation/inbox",
+    )
+
+
+@router.get(
+    "/node-info",
+    response_model=WellKnownNodeInfoOut,
+    dependencies=[Depends(api_rate_limit())],
+)
+async def get_node_info(request: Request) -> WellKnownNodeInfoOut:
+    settings = get_settings()
+    node_url = _resolve_node_url(request)
+    pub_key = get_node_public_key_b64()
+    return WellKnownNodeInfoOut(
+        app_name=settings.APP_NAME,
+        domain=settings.APP_DOMAIN,
+        node_url=node_url,
+        algorithm="Ed25519",
+        public_key=pub_key,
+        public_key_ed25519=pub_key,
+        federation_enabled=settings.FEDERATION_ENABLED,
+        federation_inbox_url=f"{node_url}/federation/inbox",
+        federation_media_url=f"{node_url}/federation/attachments",
     )

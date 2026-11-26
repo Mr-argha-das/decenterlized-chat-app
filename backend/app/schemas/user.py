@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.sanitize import sanitize_multiline_text, sanitize_single_line_text
+
 USERNAME_REGEX = re.compile(r"^[a-z0-9_.]{3,20}$")
 PrivacyScope = Literal["everyone", "contacts", "nobody"]
 WallpaperChoice = Literal["default", "emerald", "midnight", "sand", "rose", "slate"]
@@ -50,6 +52,7 @@ class UserProfileOut(BaseModel):
     about: str
     avatar_url: str | None
     is_local: bool
+    is_admin: bool = False
     is_online: bool
     last_seen_at: datetime | None
     privacy_last_seen: str
@@ -75,6 +78,23 @@ class UserProfileUpdate(BaseModel):
     notification_sound: bool | None = None
     chat_wallpaper: WallpaperChoice | None = None
     theme: Literal["light", "dark", "system"] | None = None
+
+    @field_validator("display_name")
+    @classmethod
+    def _sanitize_display_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = sanitize_single_line_text(v, max_length=80)
+        if not cleaned:
+            raise ValueError("Display name cannot be empty.")
+        return cleaned
+
+    @field_validator("about")
+    @classmethod
+    def _sanitize_about(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return sanitize_multiline_text(v, max_length=255)
 
 
 class DeleteAccountRequest(BaseModel):
@@ -116,6 +136,7 @@ class UsernameCheckOut(BaseModel):
 
 class WellKnownUserOut(BaseModel):
     id: str
+    user_uuid: str | None = None
     username: str
     domain: str
     global_id: str
@@ -139,4 +160,30 @@ class NodeKeyOut(BaseModel):
     protocol_version: str = "1.0"
 
 
+class NodeInfoOut(BaseModel):
+    software: str = "relaychat"
+    protocol_version: str = "1.0"
+    app_name: str
+    domain: str
+    node_url: str
+    algorithm: str = "Ed25519"
+    public_key: str
+    public_key_ed25519: str
+    federation_enabled: bool = True
+    federation_inbox_url: str
+    federation_media_url: str
+    capabilities: list[str] = Field(
+        default_factory=lambda: [
+            "messages",
+            "receipts",
+            "typing",
+            "presence",
+            "groups",
+            "attachments",
+            "calls",
+        ]
+    )
+
+
 WellKnownNodeKeyOut = NodeKeyOut
+WellKnownNodeInfoOut = NodeInfoOut

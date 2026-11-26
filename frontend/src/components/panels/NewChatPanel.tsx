@@ -10,12 +10,14 @@ import {
   Copy,
   Download,
   ImageUp,
+  Link2,
   Loader2,
   QrCode,
   ScanLine,
   Search,
   UserCheck,
   UserPlus,
+  Users,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -24,6 +26,7 @@ import { useChatStore } from "@/store/useChatStore";
 export interface NewChatPanelProps {
   onClose: () => void;
   onChatOpened: () => void;
+  onOpenCreateGroup?: (mode?: "create" | "join") => void;
 }
 
 type PanelTab = "contacts" | "add-id" | "qr";
@@ -45,7 +48,11 @@ export function extractRelayChatIdFromQr(raw: string): string {
   return cleaned.trim().toLowerCase();
 }
 
-export function NewChatPanel({ onClose, onChatOpened }: NewChatPanelProps) {
+export function NewChatPanel({
+  onClose,
+  onChatOpened,
+  onOpenCreateGroup,
+}: NewChatPanelProps) {
   const { user } = useAuthStore();
   const {
     contacts,
@@ -394,6 +401,50 @@ export function NewChatPanel({ onClose, onChatOpened }: NewChatPanelProps) {
               style={{ borderColor: "var(--rc-border)" }}
               className="p-2 border-b space-y-0.5"
             >
+              {onOpenCreateGroup && (
+                <>
+                  <button
+                    type="button"
+                    data-testid="new-group-trigger-btn"
+                    onClick={() => onOpenCreateGroup("create")}
+                    className="w-full px-3 py-2.5 rounded-xl flex items-center gap-3 hover:bg-[var(--rc-hover-bg)] transition text-left"
+                  >
+                    <span className="w-10 h-10 rounded-full bg-[#00a884] text-white flex items-center justify-center shrink-0">
+                      <Users className="w-5 h-5" />
+                    </span>
+                    <div>
+                      <div className="text-sm font-medium">New group</div>
+                      <div
+                        style={{ color: "var(--rc-text-secondary)" }}
+                        className="text-xs"
+                      >
+                        Sender Keys end-to-end encrypted group chat
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="join-group-link-trigger-btn"
+                    onClick={() => onOpenCreateGroup("join")}
+                    className="w-full px-3 py-2.5 rounded-xl flex items-center gap-3 hover:bg-[var(--rc-hover-bg)] transition text-left"
+                  >
+                    <span className="w-10 h-10 rounded-full bg-[#00a884]/15 text-[#00a884] flex items-center justify-center shrink-0">
+                      <Link2 className="w-5 h-5" />
+                    </span>
+                    <div>
+                      <div className="text-sm font-medium">Join group via invite link</div>
+                      <div
+                        style={{ color: "var(--rc-text-secondary)" }}
+                        className="text-xs"
+                      >
+                        Paste an invite code or ?join= link
+                      </div>
+                    </div>
+                  </button>
+                </>
+              )}
+
               <button
                 type="button"
                 onClick={() => setTab("add-id")}

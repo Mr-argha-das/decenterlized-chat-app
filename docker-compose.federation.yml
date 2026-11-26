@@ -1,0 +1,182 @@
+# RelayChat Phase 8 Two-Node Federation Harness
+# Starts two completely isolated nodes (`node-a.local` and `node-b.local`),
+# each with its own MySQL 8 database, Ed25519 signing keys, encrypted blob storage,
+# FastAPI server, and Next.js web UI.
+#
+# Usage:
+#   docker compose -f docker-compose.federation.yml up --build
+#
+# Endpoints:
+#   Node A Web: http://localhost:3001  |  Node A API: http://localhost:8001
+#   Node B Web: http://localhost:3002  |  Node B API: http://localhost:8002
+
+services:
+  # ===========================================================================
+  # NODE A (`node-a.local`)
+  # ===========================================================================
+  mysql-a:
+    image: mysql:8.0
+    container_name: relaychat-mysql-a
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret_node_a
+      MYSQL_DATABASE: relaychat_node_a
+      MYSQL_USER: relaychat_a
+      MYSQL_PASSWORD: secret_node_a
+    volumes:
+      - mysql_a_data:/var/lib/mysql
+    networks:
+      - node_a_internal
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_secret_node_a"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  api-a:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: relaychat-api-a
+    restart: unless-stopped
+    depends_on:
+      mysql-a:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: development
+      APP_NAME: "RelayChat Node A"
+      APP_DOMAIN: node-a.local
+      NODE_PUBLIC_URL: http://node-a.local:8000
+      FRONTEND_URL: http://localhost:3001
+      DATABASE_URL: mysql+aiomysql://relaychat_a:secret_node_a@mysql-a:3306/relaychat_node_a
+      JWT_SECRET_KEY: node-a-jwt-secret-key-min-32-bytes-long
+      UPLOAD_SIGNING_SECRET: node-a-upload-signing-secret-32-bytes
+      CORS_ORIGINS: http://localhost:3001,http://127.0.0.1:3001
+      FEDERATION_ENABLED: "true"
+      FEDERATION_REQUIRE_HTTPS: "false"
+      FEDERATION_ALLOW_PRIVATE_IPS: "true"
+      FEDERATION_DOMAIN_MAP: "node-a.local=http://node-a.local:8000,node-b.local=http://node-b.local:8000"
+      FEDERATION_OUTBOX_POLL_INTERVAL_SECONDS: "1.5"
+      FEDERATION_OUTBOX_BASE_DELAY_SECONDS: "2.0"
+      FEDERATION_OUTBOX_MAX_ATTEMPTS: "6"
+    ports:
+      - "8001:8000"
+    volumes:
+      - api_a_storage:/app/storage
+      - api_a_keys:/app/.node_keys
+    networks:
+      node_a_internal:
+      federation_mesh:
+        aliases:
+          - node-a.local
+
+  web-a:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: relaychat-web-a
+    restart: unless-stopped
+    depends_on:
+      - api-a
+    environment:
+      NEXT_PUBLIC_APP_NAME: "RelayChat Node A"
+      NEXT_PUBLIC_APP_DOMAIN: node-a.local
+      BACKEND_INTERNAL_URL: http://api-a:8000
+    ports:
+      - "3001:3000"
+    networks:
+      - node_a_internal
+
+  # ===========================================================================
+  # NODE B (`node-b.local`)
+  # ===========================================================================
+  mysql-b:
+    image: mysql:8.0
+    container_name: relaychat-mysql-b
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret_node_b
+      MYSQL_DATABASE: relaychat_node_b
+      MYSQL_USER: relaychat_b
+      MYSQL_PASSWORD: secret_node_b
+    volumes:
+      - mysql_b_data:/var/lib/mysql
+    networks:
+      - node_b_internal
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_secret_node_b"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  api-b:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: relaychat-api-b
+    restart: unless-stopped
+    depends_on:
+      mysql-b:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: development
+      APP_NAME: "RelayChat Node B"
+      APP_DOMAIN: node-b.local
+      NODE_PUBLIC_URL: http://node-b.local:8000
+      FRONTEND_URL: http://localhost:3002
+      DATABASE_URL: mysql+aiomysql://relaychat_b:secret_node_b@mysql-b:3306/relaychat_node_b
+      JWT_SECRET_KEY: node-b-jwt-secret-key-min-32-bytes-long
+      UPLOAD_SIGNING_SECRET: node-b-upload-signing-secret-32-bytes
+      CORS_ORIGINS: http://localhost:3002,http://127.0.0.1:3002
+      FEDERATION_ENABLED: "true"
+      FEDERATION_REQUIRE_HTTPS: "false"
+      FEDERATION_ALLOW_PRIVATE_IPS: "true"
+      FEDERATION_DOMAIN_MAP: "node-a.local=http://node-a.local:8000,node-b.local=http://node-b.local:8000"
+      FEDERATION_OUTBOX_POLL_INTERVAL_SECONDS: "1.5"
+      FEDERATION_OUTBOX_BASE_DELAY_SECONDS: "2.0"
+      FEDERATION_OUTBOX_MAX_ATTEMPTS: "6"
+    ports:
+      - "8002:8000"
+    volumes:
+      - api_b_storage:/app/storage
+      - api_b_keys:/app/.node_keys
+    networks:
+      node_b_internal:
+      federation_mesh:
+        aliases:
+          - node-b.local
+
+  web-b:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: relaychat-web-b
+    restart: unless-stopped
+    depends_on:
+      - api-b
+    environment:
+      NEXT_PUBLIC_APP_NAME: "RelayChat Node B"
+      NEXT_PUBLIC_APP_DOMAIN: node-b.local
+      BACKEND_INTERNAL_URL: http://api-b:8000
+    ports:
+      - "3002:3000"
+    networks:
+      - node_b_internal
+
+networks:
+  node_a_internal:
+    driver: bridge
+  node_b_internal:
+    driver: bridge
+  federation_mesh:
+    driver: bridge
+
+volumes:
+  mysql_a_data:
+  api_a_storage:
+  api_a_keys:
+  mysql_b_data:
+  api_b_storage:
+  api_b_keys:

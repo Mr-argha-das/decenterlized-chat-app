@@ -1,9 +1,10 @@
 """
-Clean Phase 4 -> Phase 8 Federation Lookup Hook.
+Phase 8 Federation Identifier Parser & Remote Actor Resolver.
 Resolves `username@domain`:
 - If `domain == settings.APP_DOMAIN`: looks up the user locally in `users`.
-- If `domain != settings.APP_DOMAIN`: checks cached remote `User` rows first, then delegates to
-  the registered async federation resolver hook (ready for Phase 8 `/.well-known/user/{username}`).
+- If `domain != settings.APP_DOMAIN`: resolves via custom test override (if registered) or
+  `resolve_remote_user` (`GET https://domain/.well-known/user/{username}` with SSRF protection,
+  domain allow/block policy enforcement, and `remote_users` TTL caching).
 """
 import re
 from collections.abc import Awaitable, Callable
@@ -24,7 +25,7 @@ _custom_federation_resolver: FederationResolverFn | None = None
 
 
 def register_federation_resolver(resolver: FederationResolverFn | None) -> None:
-    """Allows Phase 8 (or tests) to register a remote `/.well-known/user/{username}` resolver."""
+    """Allows tests to override remote `/.well-known/user/{username}` resolution."""
     global _custom_federation_resolver
     _custom_federation_resolver = resolver
 
@@ -89,22 +90,13 @@ async def resolve_user_by_identifier(
             )
         return local_user
 
-    # 2. Remote domain: check cached federated actors first
-    cached_res = await db.execute(
-        select(User).where(User.username == username, User.domain == domain)
-    )
-    cached_remote = cached_res.scalar_one_or_none()
-    if cached_remote:
-        return cached_remote
-
-    # 3. Delegate to Phase 8 federation discovery hook
+    # 2. Optional custom test hook override
     if _custom_federation_resolver is not None:
         resolved = await _custom_federation_resolver(db, username, domain)
         if resolved:
             return resolved
 
-    raise AppError(
-        "FEDERATION_PENDING_PHASE8",
-        f"'{username}@{domain}' is on an external node (`{domain}`). Cross-node federation lookup activates in Phase 8.",
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-    )
+    # 3. Phase 8 S2S remote user discovery + TTL cache + SSRF & domain policy protection
+    from app.services.federation_service import resolve_remote_user
+
+    return await resolve_remote_user(db, username, domain)

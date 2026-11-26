@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.sanitize import sanitize_single_line_text
 
 
 class PeerProfileViewOut(BaseModel):
@@ -31,9 +33,23 @@ class ContactCreateRequest(BaseModel):
     )
     nickname: str | None = Field(default=None, max_length=80)
 
+    @field_validator("nickname")
+    @classmethod
+    def _clean_nick(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return sanitize_single_line_text(v, max_length=80) or None
+
 
 class ContactUpdateRequest(BaseModel):
     nickname: str | None = Field(default=None, max_length=80)
+
+    @field_validator("nickname")
+    @classmethod
+    def _clean_nick(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return sanitize_single_line_text(v, max_length=80) or None
 
 
 class ContactOut(BaseModel):

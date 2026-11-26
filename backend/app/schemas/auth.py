@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.sanitize import sanitize_single_line_text
 from app.schemas.user import USERNAME_REGEX, DeviceOut, UserProfileOut, validate_p256_public_key
 
 
@@ -24,6 +25,21 @@ class SignupRequest(BaseModel):
     @classmethod
     def _validate_pubkey(cls, v: str) -> str:
         return validate_p256_public_key(v)
+
+    @field_validator("display_name")
+    @classmethod
+    def _sanitize_display_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = sanitize_single_line_text(v, max_length=80)
+        if not cleaned:
+            raise ValueError("Display name cannot be empty after sanitization.")
+        return cleaned
+
+    @field_validator("device_name")
+    @classmethod
+    def _sanitize_device_name(cls, v: str) -> str:
+        return sanitize_single_line_text(v, max_length=120) or "Web Browser"
 
 
 class LoginRequest(BaseModel):

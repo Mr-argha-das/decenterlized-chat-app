@@ -1,0 +1,185 @@
+# The Caddyfile is an easy way to configure your Caddy web server.
+#
+# Unless the file starts with a global options block, the first
+# uncommented line is always the address of your site.
+#
+# To use your own domain name (with automatic HTTPS), first make
+# sure your domain's A/AAAA DNS records are properly pointed to
+# this mach
+# https://caddyserver.com/docs/caddyfile
+wecarehhcs.in {
+        reverse_proxy 127.0.0.1:8033
+}
+
+delspike.com {
+        reverse_proxy 127.0.0.1:3002
+}
+
+www.delspike.com {
+        redir https://delspike.com{uri} permanent
+}
+
+api.delspike.com {
+        reverse_proxy 127.0.0.1:1338
+}
+
+jobresultwale.com {
+        reverse_proxy 127.0.0.1:3000
+}
+
+www.jobresultwale.com {
+        redir https://jobresultwale.com{uri} permanent
+}
+
+api.jobresultwale.com {
+        reverse_proxy 127.0.0.1:1337
+}
+
+erp.rsmemorialpublicschool.com {
+        reverse_proxy 127.0.0.1:8011
+}
+
+kids-krish.rsmemorialpublicschool.com {
+        reverse_proxy 127.0.0.1:8012
+}
+
+kids-thada.rsmemorialpublicschool.com {
+        reverse_proxy 127.0.0.1:8013
+}
+
+loan.wecarehhcs.in {
+        reverse_proxy 127.0.0.1:7800
+}
+#    handle /api/pdf* {
+#        reverse_proxy 127.0.0.1:3001
+#    }
+#    handle /api/* {
+#        reverse_proxy 127.0.0.1:5000
+#    }
+#    handle {
+#        reverse_proxy 127.0.0.1:3001
+#    }
+#}
+
+
+http://www.nexttogen.com {
+        redir https://nexttogen.com{uri} permanent
+}
+
+# Main site (HTTPS auto)
+nexttogen.com, www.nexttogen.com {
+        # Security headers
+        header {
+                Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+                X-Content-Type-Options "nosniff"
+                X-Frame-Options "SAMEORIGIN"
+                Referrer-Policy "strict-origin-when-cross-origin"
+                Permissions-Policy "geolocation=(), microphone=(), camera=()"
+                -Server
+        }
+
+        # Admin image uploads ke liye (max 10MB)
+        request_body {
+                max_size 10MB
+        }
+
+        # Compression
+        encode zstd gzip
+
+        # Reverse proxy → Next.js port 3000
+        reverse_proxy 127.0.0.1:3030 {
+                header_up Host {host}
+                header_up X-Real-IP {remote_host}
+                header_up X-Forwarded-For {remote}
+                header_up X-Forwarded-Proto {scheme}
+                header_up X-Forwarded-Port {server_port}
+                header_up Connection {>Connection}
+                header_up Upgrade {>Upgrade}
+                transport http {
+                        read_timeout 30s
+                        write_timeout 30s
+                }
+        }
+
+        # Logs
+        log {
+                output file /var/log/caddy/nexttogen.log {
+                        roll_size 10MiB
+                        roll_keep 10
+                        roll_keep_for 720h
+                }
+                format json
+        }
+}
+
+# ==============================================================================
+# RelayChat Decentralized E2EE Messenger (Isolated on 127.0.0.1:3045 & :8045)
+# NOTE: Replace chatapp.in below with your actual domain!
+# ==============================================================================
+http://www.chatapp.in {
+        redir https://chatapp.in{uri} permanent
+}
+
+www.chatapp.in {
+        redir https://chatapp.in{uri} permanent
+}
+
+chatapp.in {
+        header {
+                Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+                X-Content-Type-Options "nosniff"
+                X-Frame-Options "DENY"
+                Referrer-Policy "strict-origin-when-cross-origin"
+                Permissions-Policy "camera=(self), microphone=(self), geolocation=(self), payment=()"
+                -Server
+        }
+
+        request_body {
+                max_size 110MB
+        }
+
+        encode zstd gzip
+
+        @metrics path /metrics
+        respond @metrics "Forbidden" 403
+
+        @relaychat_api {
+                path /.well-known/chat-server
+                path /federation/*
+                path /ws*
+                path /api/*
+                path /auth/*
+                path /users*
+                path /contacts*
+                path /blocks*
+                path /conversations*
+                path /messages*
+                path /groups*
+                path /attachments/*
+                path /statuses*
+                path /push*
+                path /health
+        }
+        handle @relaychat_api {
+                reverse_proxy 127.0.0.1:8045 {
+                        header_up Host {host}
+                        header_up X-Real-IP {remote_host}
+                }
+        }
+
+        handle {
+                reverse_proxy 127.0.0.1:3045 {
+                        header_up Host {host}
+                        header_up X-Real-IP {remote_host}
+                }
+        }
+
+        log {
+                output file /var/log/caddy/relaychat.log {
+                        roll_size 10MiB
+                        roll_keep 10
+                        roll_keep_for 720h
+                }
+                format json
+        }
+}

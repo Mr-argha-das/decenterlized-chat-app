@@ -47,6 +47,14 @@ async def register_user_and_device(
         )
 
     now = datetime.now(timezone.utc)
+    local_count_res = await db.execute(
+        select(User.id).where(User.is_local.is_(True)).limit(1)
+    )
+    is_first_local_user = local_count_res.scalar_one_or_none() is None
+    grant_admin = is_first_local_user or (
+        body.username.strip().lower() in settings.admin_username_set
+    )
+
     user = User(
         username=body.username,
         domain=settings.APP_DOMAIN,
@@ -56,6 +64,7 @@ async def register_user_and_device(
         display_name=(body.display_name or body.username).strip(),
         about=f"Hey there! I am using {settings.APP_NAME}.",
         is_local=True,
+        is_admin=grant_admin,
         node_url=settings.NODE_PUBLIC_URL.rstrip("/"),
         is_online=True,
         last_seen_at=now,

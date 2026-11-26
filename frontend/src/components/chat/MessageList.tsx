@@ -9,9 +9,11 @@ import React, {
   useState,
 } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
-import { MessageBubble } from "@/components/chat/MessageBubble";
 import {
-  ImageAttachmentMock,
+  LightboxMediaPayload,
+  MessageBubble,
+} from "@/components/chat/MessageBubble";
+import {
   LocationAttachmentMock,
   MockMessage,
 } from "@/mocks";
@@ -30,8 +32,9 @@ export interface MessageListProps {
   onReplyMessage: (msg: MockMessage) => void;
   onEditMessage?: (msg: MockMessage) => void;
   onDeleteMessage?: (messageId: string, scope: "me" | "everyone") => void;
-  onPreviewImage: (img: ImageAttachmentMock) => void;
+  onPreviewImage: (media: LightboxMediaPayload) => void;
   onPreviewLocation: (loc: LocationAttachmentMock) => void;
+  onStopLiveLocation?: (messageId: string) => void;
 }
 
 type VirtualRow =
@@ -76,6 +79,7 @@ export function MessageList({
   onDeleteMessage,
   onPreviewImage,
   onPreviewLocation,
+  onStopLiveLocation,
 }: MessageListProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const measuredHeightsRef = useRef<Map<string, number>>(new Map());
@@ -356,6 +360,7 @@ export function MessageList({
                     onJumpToMessage={handleJumpToMessage}
                     onPreviewImage={onPreviewImage}
                     onPreviewLocation={onPreviewLocation}
+                    onStopLiveLocation={onStopLiveLocation}
                   />
                 )}
 

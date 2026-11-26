@@ -111,26 +111,32 @@ def decode_jwt_token(token: str, expected_type: str) -> dict[str, Any]:
 # -----------------------------------------------------------------------------
 # Node Ed25519 Federation Keypair Management
 # -----------------------------------------------------------------------------
-_cached_node_key: Ed25519PrivateKey | None = None
+_cached_node_keys: dict[tuple[str, str], Ed25519PrivateKey] = {}
+
+
+def reset_node_key_cache() -> None:
+    _cached_node_keys.clear()
 
 
 def get_node_private_key() -> Ed25519PrivateKey:
-    global _cached_node_key
-    if _cached_node_key is not None:
-        return _cached_node_key
-
     settings = get_settings()
+    cache_key = (settings.NODE_PRIVATE_KEY_B64, str(Path(settings.NODE_KEY_PATH)))
+    if cache_key in _cached_node_keys:
+        return _cached_node_keys[cache_key]
+
     if settings.NODE_PRIVATE_KEY_B64:
         raw = base64.b64decode(settings.NODE_PRIVATE_KEY_B64)
-        _cached_node_key = Ed25519PrivateKey.from_private_bytes(raw)
-        return _cached_node_key
+        priv = Ed25519PrivateKey.from_private_bytes(raw)
+        _cached_node_keys[cache_key] = priv
+        return priv
 
     key_file = Path(settings.NODE_KEY_PATH)
     if key_file.exists():
         data = json.loads(key_file.read_text(encoding="utf-8"))
         raw = base64.b64decode(data["private_key_b64"])
-        _cached_node_key = Ed25519PrivateKey.from_private_bytes(raw)
-        return _cached_node_key
+        priv = Ed25519PrivateKey.from_private_bytes(raw)
+        _cached_node_keys[cache_key] = priv
+        return priv
 
     key_file.parent.mkdir(parents=True, exist_ok=True)
     priv = Ed25519PrivateKey.generate()
@@ -153,8 +159,8 @@ def get_node_private_key() -> Ed25519PrivateKey:
         ),
         encoding="utf-8",
     )
-    _cached_node_key = priv
-    return _cached_node_key
+    _cached_node_keys[cache_key] = priv
+    return priv
 
 
 def get_node_public_key_b64() -> str:

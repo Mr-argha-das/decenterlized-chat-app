@@ -1,0 +1,174 @@
+version: "3.9"
+
+# ==============================================================================
+# RelayChat (chatapp.in) — Production Docker Compose Stack
+# Includes: MySQL 8, Redis 7, MinIO S3, Coturn STUN/TURN, FastAPI Backend,
+#           Next.js PWA Frontend, Nginx + Let's Encrypt Certbot, & MySQL Backup
+# ==============================================================================
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-relaychat}
+      MYSQL_USER: ${MYSQL_USER:-relaychat}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    volumes:
+      - mysql_prod_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "${MYSQL_USER:-relaychat}", "--password=${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+    volumes:
+      - minio_prod_data:/data
+
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    restart: unless-stopped
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "5349:5349/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: production
+      APP_DOMAIN: ${APP_DOMAIN:-chatapp.in}
+      NODE_PUBLIC_URL: https://${APP_DOMAIN:-chatapp.in}
+      FRONTEND_URL: https://${APP_DOMAIN:-chatapp.in}
+      CORS_ORIGINS: https://${APP_DOMAIN:-chatapp.in}
+      COOKIE_SECURE: "true"
+      FEDERATION_ENABLED: "true"
+      FEDERATION_REQUIRE_HTTPS: "true"
+      NODE_PRIVATE_KEY_B64: ${NODE_PRIVATE_KEY_B64:-}
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-relaychat}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-relaychat}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      UPLOAD_SIGNING_SECRET: ${UPLOAD_SIGNING_SECRET:?Set UPLOAD_SIGNING_SECRET in .env}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@chatapp.in}
+      CSP_ENABLED: "true"
+      STRICT_FRAME_HEADERS: "true"
+      FILE_SCANNER_ENABLED: "true"
+      FILE_SCANNER_CMD: ${FILE_SCANNER_CMD:-}
+    volumes:
+      - attachments_prod_data:/app/storage/attachments
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_APP_NAME: ${APP_NAME:-RelayChat}
+        NEXT_PUBLIC_APP_DOMAIN: ${APP_DOMAIN:-chatapp.in}
+        BACKEND_INTERNAL_URL: http://backend:8000
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      BACKEND_INTERNAL_URL: http://backend:8000
+      NEXT_PUBLIC_APP_DOMAIN: ${APP_DOMAIN:-chatapp.in}
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SERVER_DOMAIN: ${APP_DOMAIN:-chatapp.in}
+    volumes:
+      - ./deploy/nginx/relaychat.conf:/etc/nginx/templates/default.conf.template:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
+
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do
+        certbot renew --webroot -w /var/www/certbot --quiet;
+        sleep 12h & wait $${!};
+      done"
+
+  mysql-backup:
+    image: mysql:8.4
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-relaychat}
+      MYSQL_USER: ${MYSQL_USER:-relaychat}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      BACKUP_DIR: /backups/mysql
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:-}
+    volumes:
+      - ./scripts/backup_mysql.sh:/usr/local/bin/backup_mysql.sh:ro
+      - mysql_backups:/backups
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do
+        /bin/bash /usr/local/bin/backup_mysql.sh;
+        sleep 24h & wait $${!};
+      done"
+
+volumes:
+  mysql_prod_data:
+  redis_prod_data:
+  minio_prod_data:
+  attachments_prod_data:
+  certbot_www:
+  certbot_certs:
+  mysql_backups:

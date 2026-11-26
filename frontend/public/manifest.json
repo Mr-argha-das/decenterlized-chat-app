@@ -1,0 +1,19 @@
+{
+  "name": "RelayChat — Federated E2EE Messenger",
+  "short_name": "RelayChat",
+  "description": "Decentralized, federated end-to-end encrypted messaging web app.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b141a",
+  "theme_color": "#00a884",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

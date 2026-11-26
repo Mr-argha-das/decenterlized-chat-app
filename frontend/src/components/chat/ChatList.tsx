@@ -2,6 +2,8 @@
 
 import React, { useMemo } from "react";
 import {
+  Archive,
+  CircleDashed,
   Keyboard,
   LogOut,
   MessageSquarePlus,
@@ -10,14 +12,16 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Star,
   Sun,
+  Users,
   X,
 } from "lucide-react";
 import { ChatListItem } from "@/components/chat/ChatListItem";
 import { Avatar } from "@/components/ui/Avatar";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { RealtimeConnectionState } from "@/lib/ws/realtimeClient";
-import { MockChat } from "@/mocks";
+import { MockChat, MockMessage } from "@/mocks";
 import { SidebarFilter } from "@/store/useChatStore";
 
 export interface ChatListProps {
@@ -27,6 +31,7 @@ export interface ChatListProps {
   currentUserAvatarColor?: string;
   wsState?: RealtimeConnectionState;
   chats: MockChat[];
+  messagesByChat?: Record<string, MockMessage[]>;
   activeChatId: string | null;
   filter: SidebarFilter;
   searchQuery: string;
@@ -37,6 +42,9 @@ export interface ChatListProps {
   onFilterChange: (filter: SidebarFilter) => void;
   onSearchChange: (q: string) => void;
   onOpenNewChat: () => void;
+  onOpenCreateGroup?: () => void;
+  onOpenStatus?: () => void;
+  onOpenStarred?: () => void;
   onOpenSettings: () => void;
   onOpenProfile: () => void;
   onOpenShortcuts: () => void;
@@ -52,6 +60,7 @@ export function ChatList({
   currentUserAvatarColor = "#00a884",
   wsState = "connected",
   chats,
+  messagesByChat = {},
   activeChatId,
   filter,
   searchQuery,
@@ -62,6 +71,9 @@ export function ChatList({
   onFilterChange,
   onSearchChange,
   onOpenNewChat,
+  onOpenCreateGroup,
+  onOpenStatus,
+  onOpenStarred,
   onOpenSettings,
   onOpenProfile,
   onOpenShortcuts,
@@ -70,7 +82,12 @@ export function ChatList({
   onLogout,
 }: ChatListProps) {
   const unreadChatCount = useMemo(
-    () => chats.filter((c) => c.unreadCount > 0).length,
+    () => chats.filter((c) => !c.isArchived && c.unreadCount > 0).length,
+    [chats]
+  );
+
+  const archivedChatCount = useMemo(
+    () => chats.filter((c) => !!c.isArchived).length,
     [chats]
   );
 
@@ -78,6 +95,11 @@ export function ChatList({
     const q = searchQuery.trim().toLowerCase();
     return [...chats]
       .filter((c) => {
+        if (filter === "archived") {
+          if (!c.isArchived) return false;
+        } else if (!q && c.isArchived) {
+          return false;
+        }
         if (filter === "unread" && c.unreadCount === 0) return false;
         if (filter === "groups" && !c.isGroup) return false;
         if (!q) return true;
@@ -89,6 +111,28 @@ export function ChatList({
       })
       .sort((a, b) => Number(b.isPinned) - Number(a.isPinned));
   }, [chats, filter, searchQuery]);
+
+  // Client-side search across locally decrypted messages in memory
+  const matchingDecryptedMessages = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const results: { chat: MockChat; msg: MockMessage }[] = [];
+    for (const chat of chats) {
+      const list = messagesByChat[chat.id] || [];
+      for (let i = list.length - 1; i >= 0; i--) {
+        const m = list[i];
+        if (m.type === "system" || m.deletedForEveryone || m.decryptionError) {
+          continue;
+        }
+        const hay = `${m.text || ""} ${m.file?.fileName || ""} ${m.image?.caption || ""}`.toLowerCase();
+        if (hay.includes(q)) {
+          results.push({ chat, msg: m });
+          if (results.length >= 15) return results;
+        }
+      }
+    }
+    return results;
+  }, [chats, messagesByChat, searchQuery]);
 
   return (
     <aside
@@ -153,6 +197,19 @@ export function ChatList({
             {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
 
+          {onOpenStatus && (
+            <button
+              type="button"
+              onClick={onOpenStatus}
+              data-testid="open-status-button"
+              className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition relative"
+              title="Status (24h Encrypted Stories)"
+              aria-label="Status stories"
+            >
+              <CircleDashed className="w-5 h-5 text-[#00a884]" />
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onOpenNewChat}
@@ -181,10 +238,40 @@ export function ChatList({
             items={[
               {
                 id: "new-chat",
-                label: "New chat / group",
+                label: "New chat / contact",
                 icon: <MessageSquarePlus className="w-4 h-4 text-[#00a884]" />,
                 onClick: onOpenNewChat,
               },
+              ...(onOpenCreateGroup
+                ? [
+                    {
+                      id: "new-group",
+                      label: "New encrypted group",
+                      icon: <Users className="w-4 h-4 text-[#00a884]" />,
+                      onClick: onOpenCreateGroup,
+                    },
+                  ]
+                : []),
+              ...(onOpenStatus
+                ? [
+                    {
+                      id: "status",
+                      label: "Status (24h stories)",
+                      icon: <CircleDashed className="w-4 h-4 text-[#00a884]" />,
+                      onClick: onOpenStatus,
+                    },
+                  ]
+                : []),
+              ...(onOpenStarred
+                ? [
+                    {
+                      id: "starred",
+                      label: "Starred messages",
+                      icon: <Star className="w-4 h-4 text-amber-400" />,
+                      onClick: onOpenStarred,
+                    },
+                  ]
+                : []),
               {
                 id: "settings",
                 label: "Settings & Theme",
@@ -257,8 +344,8 @@ export function ChatList({
           )}
         </div>
 
-        {/* Filter Chips: All / Unread / Groups */}
-        <div className="flex items-center gap-2">
+        {/* Filter Chips: All / Unread / Groups / Archived */}
+        <div className="flex items-center gap-1.5 flex-wrap">
           {(
             [
               { key: "all", label: "All" },
@@ -267,6 +354,13 @@ export function ChatList({
                 label: unreadChatCount > 0 ? `Unread (${unreadChatCount})` : "Unread",
               },
               { key: "groups", label: "Groups" },
+              {
+                key: "archived",
+                label:
+                  archivedChatCount > 0
+                    ? `Archived (${archivedChatCount})`
+                    : "Archived",
+              },
             ] as { key: SidebarFilter; label: string }[]
           ).map((chip) => {
             const active = filter === chip.key;
@@ -330,14 +424,57 @@ export function ChatList({
             </button>
           </div>
         ) : (
-          visibleChats.map((chat) => (
-            <ChatListItem
-              key={chat.id}
-              chat={chat}
-              isActive={chat.id === activeChatId}
-              onSelect={onSelectChat}
-            />
-          ))
+          <>
+            {visibleChats.map((chat) => (
+              <ChatListItem
+                key={chat.id}
+                chat={chat}
+                isActive={chat.id === activeChatId}
+                onSelect={onSelectChat}
+              />
+            ))}
+            {matchingDecryptedMessages.length > 0 && (
+              <div className="border-t border-[var(--rc-border)] pt-2 pb-4">
+                <div
+                  style={{ color: "var(--rc-text-secondary)" }}
+                  className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5"
+                >
+                  <Archive className="w-3 h-3 text-[#00a884]" />
+                  Decrypted Message Matches ({matchingDecryptedMessages.length})
+                </div>
+                {matchingDecryptedMessages.map(({ chat, msg }) => (
+                  <button
+                    key={msg.id}
+                    type="button"
+                    onClick={() => onSelectChat(chat.id)}
+                    className="w-full px-4 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition border-b border-[var(--rc-border)]/40"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <span
+                        style={{ color: "var(--rc-text-primary)" }}
+                        className="font-semibold truncate"
+                      >
+                        {chat.name}
+                      </span>
+                      <span
+                        style={{ color: "var(--rc-text-muted)" }}
+                        className="text-[10px] shrink-0"
+                      >
+                        {msg.timeLabel}
+                      </span>
+                    </div>
+                    <div
+                      style={{ color: "var(--rc-text-secondary)" }}
+                      className="text-xs truncate mt-0.5"
+                    >
+                      {msg.senderId === "me" ? "You: " : `${msg.senderName}: `}
+                      {msg.text || msg.file?.fileName || "Attachment"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </aside>

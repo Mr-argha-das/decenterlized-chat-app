@@ -20,13 +20,47 @@ export interface EncryptedKeyBackupFile {
 export interface DecryptedMessagePayload {
   v: 1;
   text: string;
+  // Encrypted attachment key & chunk geometry (travels ONLY inside E2EE ciphertext)
+  attachmentId?: string;
+  fileKeyB64?: string;
+  baseNonceB64?: string;
+  chunkSize?: number;
+  chunkCount?: number;
+  encryptedChunkLengths?: number[];
+  totalSizeBytes?: number;
+  downloadUrl?: string;
   fileName?: string;
   fileSize?: string;
   mimeType?: string;
+  extension?: string;
+  // Client-generated encrypted thumbnail (for image & video previews)
+  thumbCiphertext?: string;
+  thumbNonce?: string;
+  width?: number;
+  height?: number;
+  // Voice & Audio metadata
   durationSec?: number;
+  waveform?: number[];
+  // Static & Live Location metadata
   latitude?: number;
   longitude?: number;
+  accuracy?: number;
+  label?: string;
   address?: string;
+  isLive?: boolean;
+  liveStopped?: boolean;
+  durationMinutes?: number;
+  expiresAt?: string;
+  updatedAt?: string;
+  // Phase 9: Forwarded flag & Status Reply context (travels strictly inside E2EE ciphertext)
+  forwarded?: boolean;
+  statusReply?: {
+    statusId: string;
+    authorName?: string;
+    mediaType: string;
+    previewText?: string;
+    backgroundStyle?: string | null;
+  };
 }
 
 const HKDF_SALT = new TextEncoder().encode("RelayChat-ECDH-HKDF-SHA256-v1");
@@ -275,15 +309,9 @@ export async function decryptDirectMessage(
     const parsed = JSON.parse(raw) as Partial<DecryptedMessagePayload>;
     if (parsed && typeof parsed === "object" && typeof parsed.text === "string") {
       return {
+        ...parsed,
         v: 1,
         text: parsed.text,
-        fileName: parsed.fileName,
-        fileSize: parsed.fileSize,
-        mimeType: parsed.mimeType,
-        durationSec: parsed.durationSec,
-        latitude: parsed.latitude,
-        longitude: parsed.longitude,
-        address: parsed.address,
       };
     }
   } catch {

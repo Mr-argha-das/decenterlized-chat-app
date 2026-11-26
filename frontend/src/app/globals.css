@@ -1,6 +1,13 @@
+@import "leaflet/dist/leaflet.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.leaflet-container {
+  z-index: 0 !important;
+  font-family: inherit;
+}
 
 :root {
   --rc-app-backdrop: #d1d7db;

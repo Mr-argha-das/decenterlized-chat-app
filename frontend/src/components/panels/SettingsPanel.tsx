@@ -9,6 +9,7 @@ import {
   Bell,
   Check,
   Download,
+  Globe,
   KeyRound,
   Laptop,
   Lock,
@@ -20,6 +21,8 @@ import {
   Trash2,
   Volume2,
 } from "lucide-react";
+import { FederationStatusSection } from "@/components/panels/FederationStatusSection";
+import { WebPushSection } from "@/components/panels/WebPushSection";
 import { Avatar } from "@/components/ui/Avatar";
 import {
   DeviceSession,
@@ -43,6 +46,7 @@ type SettingsSection =
   | "notifications"
   | "appearance"
   | "devices"
+  | "federation"
   | "delete";
 
 const WALLPAPER_SWATCHES: {
@@ -118,6 +122,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     notifications: "Notifications",
     appearance: "Theme & Chat Wallpaper",
     devices: "Linked Devices",
+    federation: "Federation & Peer Nodes",
     delete: "Delete My Account",
   };
 
@@ -248,6 +253,12 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   icon: <Laptop className="w-5 h-5 text-[#00a884]" />,
                   title: "Linked Devices",
                   desc: "Manage active browser sessions & remote logout",
+                },
+                {
+                  id: "federation" as const,
+                  icon: <Globe className="w-5 h-5 text-[#00a884]" />,
+                  title: "Federation & Peer Nodes",
+                  desc: "Peer status, domain allow/block policy & outbox queue",
                 },
                 {
                   id: "delete" as const,
@@ -544,6 +555,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             >
               <Volume2 className="w-4 h-4 text-[#00a884]" /> Test Notification Chime
             </button>
+
+            <WebPushSection />
           </div>
         )}
 
@@ -707,6 +720,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </div>
           </div>
         )}
+
+        {/* 5b. FEDERATION & PEER NODES */}
+        {section === "federation" && <FederationStatusSection />}
 
         {/* 6. DELETE ACCOUNT */}
         {section === "delete" && (

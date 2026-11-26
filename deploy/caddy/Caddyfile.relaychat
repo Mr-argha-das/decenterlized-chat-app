@@ -1,0 +1,77 @@
+# ==============================================================================
+# RelayChat — Caddy Block (Append this to the bottom of /etc/caddy/Caddyfile)
+# Replace chatapp.in with your actual domain (e.g., chatapp.in or chat.yourdomain.com)
+# ==============================================================================
+
+http://www.chatapp.in {
+        redir https://chatapp.in{uri} permanent
+}
+
+www.chatapp.in {
+        redir https://chatapp.in{uri} permanent
+}
+
+chatapp.in {
+        # Security headers (allows self camera/mic/geolocation for E2EE calls, voice notes & location)
+        header {
+                Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+                X-Content-Type-Options "nosniff"
+                X-Frame-Options "DENY"
+                Referrer-Policy "strict-origin-when-cross-origin"
+                Permissions-Policy "camera=(self), microphone=(self), geolocation=(self), payment=()"
+                -Server
+        }
+
+        # Allow up to 100 MB E2EE encrypted file chunks (+ framing overhead)
+        request_body {
+                max_size 110MB
+        }
+
+        encode zstd gzip
+
+        # Keep internal Prometheus /metrics private from public internet
+        @metrics path /metrics
+        respond @metrics "Forbidden" 403
+
+        # Route API, WebSocket (/ws), & S2S Federation directly to FastAPI container (127.0.0.1:8045)
+        @relaychat_api {
+                path /.well-known/chat-server
+                path /federation/*
+                path /ws*
+                path /api/*
+                path /auth/*
+                path /users*
+                path /contacts*
+                path /blocks*
+                path /conversations*
+                path /messages*
+                path /groups*
+                path /attachments/*
+                path /statuses*
+                path /push*
+                path /health
+        }
+        handle @relaychat_api {
+                reverse_proxy 127.0.0.1:8045 {
+                        header_up Host {host}
+                        header_up X-Real-IP {remote_host}
+                }
+        }
+
+        # Route all frontend PWA pages & Service Worker (/sw.js) to Next.js container (127.0.0.1:3045)
+        handle {
+                reverse_proxy 127.0.0.1:3045 {
+                        header_up Host {host}
+                        header_up X-Real-IP {remote_host}
+                }
+        }
+
+        log {
+                output file /var/log/caddy/relaychat.log {
+                        roll_size 10MiB
+                        roll_keep 10
+                        roll_keep_for 720h
+                }
+                format json
+        }
+}

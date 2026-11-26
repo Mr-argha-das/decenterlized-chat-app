@@ -1,0 +1,172 @@
+# ==============================================================================
+# RelayChat — Production Docker Compose for Existing Caddy Multi-Project VPS
+# ==============================================================================
+# Safe for servers already running Caddy on :80/:443 and other apps on :3000,
+# :3002, :3030, :8000, :8011-8013, :8033, :3306, :6379, etc.
+#
+# - MySQL & Redis stay 100% private inside Docker (NO host ports exposed).
+# - Backend binds ONLY to 127.0.0.1:8045 (configurable via RELAYCHAT_API_PORT).
+# - Frontend binds ONLY to 127.0.0.1:3045 (configurable via RELAYCHAT_WEB_PORT).
+# - Host Caddy handles automatic Let's Encrypt HTTPS & proxies to 127.0.0.1.
+# ==============================================================================
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: relaychat-prod-mysql
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-relaychat}
+      MYSQL_USER: ${MYSQL_USER:-relaychat}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    volumes:
+      - relaychat_mysql_data:/var/lib/mysql
+    networks:
+      - relaychat_internal
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "${MYSQL_USER:-relaychat}", "--password=${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    container_name: relaychat-prod-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - relaychat_redis_data:/data
+    networks:
+      - relaychat_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: relaychat-prod-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: production
+      APP_NAME: ${APP_NAME:-RelayChat}
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env (e.g. chatapp.in)}
+      NODE_PUBLIC_URL: https://${APP_DOMAIN}
+      FRONTEND_URL: https://${APP_DOMAIN}
+      CORS_ORIGINS: https://${APP_DOMAIN}
+      COOKIE_SECURE: "true"
+      COOKIE_SAMESITE: lax
+      FEDERATION_ENABLED: "true"
+      FEDERATION_REQUIRE_HTTPS: "true"
+      NODE_PRIVATE_KEY_B64: ${NODE_PRIVATE_KEY_B64:-}
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-relaychat}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-relaychat}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      UPLOAD_SIGNING_SECRET: ${UPLOAD_SIGNING_SECRET:?Set UPLOAD_SIGNING_SECRET in .env}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@chatapp.in}
+      CSP_ENABLED: "true"
+      STRICT_FRAME_HEADERS: "true"
+      FILE_SCANNER_ENABLED: "true"
+      FILE_SCANNER_CMD: ${FILE_SCANNER_CMD:-}
+      TURN_REALM: ${APP_DOMAIN}
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-relaychat_turn_shared_secret}
+    ports:
+      - "127.0.0.1:${RELAYCHAT_API_PORT:-8045}:8000"
+    volumes:
+      - relaychat_attachments:/app/storage
+      - relaychat_node_keys:/app/.node_keys
+    networks:
+      - relaychat_internal
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_APP_NAME: ${APP_NAME:-RelayChat}
+        NEXT_PUBLIC_APP_DOMAIN: ${APP_DOMAIN}
+        BACKEND_INTERNAL_URL: http://backend:8000
+        NEXT_PUBLIC_STUN_URL: ${NEXT_PUBLIC_STUN_URL:-stun:stun.cloudflare.com:3478}
+        NEXT_PUBLIC_TURN_URL: ${NEXT_PUBLIC_TURN_URL:-}
+    container_name: relaychat-prod-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      BACKEND_INTERNAL_URL: http://backend:8000
+      NEXT_PUBLIC_APP_NAME: ${APP_NAME:-RelayChat}
+      NEXT_PUBLIC_APP_DOMAIN: ${APP_DOMAIN}
+    ports:
+      - "127.0.0.1:${RELAYCHAT_WEB_PORT:-3045}:3000"
+    networks:
+      - relaychat_internal
+
+  mysql-backup:
+    image: mysql:8.4
+    container_name: relaychat-prod-backup
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-relaychat}
+      MYSQL_USER: ${MYSQL_USER:-relaychat}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      BACKUP_DIR: /backups/mysql
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:-}
+    volumes:
+      - ./scripts/backup_mysql.sh:/usr/local/bin/backup_mysql.sh:ro
+      - relaychat_mysql_backups:/backups
+    networks:
+      - relaychat_internal
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do
+        /bin/bash /usr/local/bin/backup_mysql.sh;
+        sleep 24h & wait $${!};
+      done"
+
+  # Optional self-hosted TURN server (enable anytime with: --profile turn)
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    container_name: relaychat-prod-coturn
+    profiles: ["turn"]
+    restart: unless-stopped
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    networks:
+      - relaychat_internal
+
+networks:
+  relaychat_internal:
+    driver: bridge
+
+volumes:
+  relaychat_mysql_data:
+  relaychat_redis_data:
+  relaychat_attachments:
+  relaychat_node_keys:
+  relaychat_mysql_backups:

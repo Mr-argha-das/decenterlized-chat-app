@@ -150,14 +150,13 @@ async def test_contacts_add_by_full_id_qr_uri_and_federation_hook(
     assert patch_nick.status_code == 200
     assert patch_nick.json()["user"]["effective_name"] == "Bob Team Lead"
 
-    # 5. Remote domain triggers Phase 8 federation hook cleanly (501 default, pluggable callback)
+    # 5. Remote domain triggers Phase 8 federation lookup (unreachable .example -> 502/403, pluggable callback)
     remote_res = await client.post(
         "/contacts",
         headers=_auth(alice),
         json={"identifier": "vikram@remote-node.example"},
     )
-    assert remote_res.status_code == 501
-    assert "Phase 8" in remote_res.json()["error"]["message"]
+    assert remote_res.status_code in (403, 502)
 
     hook_calls: list[tuple[str, str]] = []
 

@@ -7,9 +7,11 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.api.deps import verify_access_token_and_load_auth
+from app.core.config import get_settings
 from app.core.errors import AppError
+from app.core.rate_limit import rate_limiter
 from app.db.session import AsyncSessionLocal
-from app.models.entities import User
+from app.models.entities import Conversation, User
 from app.schemas.chat import MessageCreateRequest
 from app.services.chat_service import (
     acknowledge_messages,
@@ -18,11 +20,21 @@ from app.services.chat_service import (
     flush_offline_queue_and_resume,
     get_conversation_member_ids,
     get_peer_user_ids_for_presence,
+    get_unmuted_mentioned_user_ids,
+    stop_live_location_message,
+    update_live_location_message,
+)
+from app.services.federation_hook import resolve_user_by_identifier
+from app.services.federation_service import (
+    enqueue_federation_event,
+    enqueue_for_remote_users,
+    trigger_outbox_wakeup,
 )
 from app.services.privacy_service import (
     assert_not_blocked_for_messaging,
     filter_presence_audience,
 )
+from app.services.push_service import dispatch_push_for_new_message
 from app.services.realtime import ws_manager
 
 logger = logging.getLogger("relaychat.ws")
@@ -98,6 +110,32 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         "ts": now.isoformat(),
                     },
                 )
+                remote_peer_rows = (
+                    await db.execute(
+                        select(User).where(
+                            User.id.in_(allowed_peers), User.is_local.is_(False)
+                        )
+                    )
+                ).scalars().all()
+                by_dom: dict[str, list[str]] = {}
+                for rpu in remote_peer_rows:
+                    by_dom.setdefault(rpu.domain.lower(), []).append(rpu.global_id)
+                for dom, target_gids in by_dom.items():
+                    await enqueue_federation_event(
+                        db,
+                        target_domain=dom,
+                        event_type="presence",
+                        data={
+                            "actor_global_id": user_global_id,
+                            "is_online": True,
+                            "last_seen_at": now.isoformat(),
+                            "target_global_ids": target_gids,
+                        },
+                        commit=False,
+                    )
+                if by_dom:
+                    await db.commit()
+                    trigger_outbox_wakeup()
 
         await websocket.send_json(
             {
@@ -133,11 +171,32 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             if event_type in ("message.send", "message.new"):
                 async with AsyncSessionLocal() as db:
                     try:
+                        rate_limiter.check(
+                            "ws_msg",
+                            user_id,
+                            get_settings().WS_MSG_RATE_LIMIT_PER_MINUTE,
+                            60,
+                        )
                         u_res = await db.execute(select(User).where(User.id == user_id))
                         sender = u_res.scalar_one()
                         req = MessageCreateRequest.model_validate(data)
                         msg_out, member_ids = await create_encrypted_message(
                             db, sender=sender, body=req
+                        )
+                        grp_name, mention_targets = (
+                            await get_unmuted_mentioned_user_ids(
+                                db, msg_out.conversation_id, sender.id, msg_out.mentions
+                            )
+                            if msg_out.mentions
+                            else ("", [])
+                        )
+                        sender_disp = sender.display_name
+                        await dispatch_push_for_new_message(
+                            db,
+                            sender=sender,
+                            msg_out=msg_out,
+                            recipient_ids=member_ids,
+                            is_group=(msg_out.sender_key_version is not None),
                         )
                     except (ValidationError, AppError) as exc:
                         err_msg = exc.message if isinstance(exc, AppError) else "Invalid message payload."
@@ -186,6 +245,23 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                             {"event": "message.new", "data": msg_json, "ts": now_iso},
                         )
 
+                    for m_uid in mention_targets:
+                        await ws_manager.send_to_user(
+                            m_uid,
+                            {
+                                "event": "group.mention",
+                                "data": {
+                                    "group_id": msg_out.conversation_id,
+                                    "conversation_id": msg_out.conversation_id,
+                                    "group_name": grp_name,
+                                    "message_id": msg_out.id,
+                                    "sender_id": user_id,
+                                    "sender_display_name": sender_disp,
+                                },
+                                "ts": now_iso,
+                            },
+                        )
+
             elif event_type == "message.ack":
                 conv_id = str(data.get("conversation_id") or "")
                 ack_status = str(data.get("status") or "delivered")
@@ -222,6 +298,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 if msg_out.delivered_at
                                 else None,
                                 "read_at": msg_out.read_at.isoformat() if msg_out.read_at else None,
+                                "read_by": [r.model_dump(mode="json") for r in msg_out.read_by],
+                                "delivered_to": [
+                                    d.model_dump(mode="json") for d in msg_out.delivered_to
+                                ],
                             },
                             "ts": now_iso,
                         },
@@ -234,8 +314,61 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 async with AsyncSessionLocal() as db:
                     try:
                         await assert_conversation_member(db, conv_id, user_id)
+                        conv_row = (
+                            await db.execute(
+                                select(Conversation).where(Conversation.id == conv_id)
+                            )
+                        ).scalar_one_or_none()
                         member_ids = await get_conversation_member_ids(db, conv_id)
-                        await assert_not_blocked_for_messaging(db, user_id, member_ids)
+                        if conv_row and conv_row.type == "direct":
+                            await assert_not_blocked_for_messaging(db, user_id, member_ids)
+                        sender_u = (
+                            await db.execute(select(User).where(User.id == user_id))
+                        ).scalar_one_or_none()
+                        typing_display_name = sender_u.display_name if sender_u else user_global_id
+                        mem_users = list(
+                            (
+                                await db.execute(
+                                    select(User).where(User.id.in_(member_ids))
+                                )
+                            )
+                            .scalars()
+                            .all()
+                        )
+                        remote_typing_targets = [
+                            u for u in mem_users if not u.is_local and u.id != user_id
+                        ]
+                        if remote_typing_targets and conv_row:
+                            if conv_row.type == "direct":
+                                for rtu in remote_typing_targets:
+                                    await enqueue_federation_event(
+                                        db,
+                                        target_domain=rtu.domain,
+                                        event_type="typing",
+                                        data={
+                                            "actor_global_id": user_global_id,
+                                            "typing_event": event_type,
+                                            "conversation_id": conv_id,
+                                            "conversation_type": "direct",
+                                            "peer_global_id": rtu.global_id,
+                                        },
+                                        commit=False,
+                                    )
+                                await db.commit()
+                                trigger_outbox_wakeup()
+                            else:
+                                await enqueue_for_remote_users(
+                                    db,
+                                    remote_typing_targets,
+                                    event_type="typing",
+                                    data={
+                                        "actor_global_id": user_global_id,
+                                        "typing_event": event_type,
+                                        "conversation_id": conv_id,
+                                        "conversation_type": "group",
+                                    },
+                                    commit=True,
+                                )
                     except AppError:
                         continue
 
@@ -250,10 +383,141 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 "conversation_id": conv_id,
                                 "user_id": user_id,
                                 "global_id": user_global_id,
+                                "display_name": typing_display_name,
                             },
                             "ts": now_iso,
                         },
                     )
+
+            elif event_type == "location.live_update":
+                msg_id = str(data.get("message_id") or "")
+                ciphertext = str(data.get("ciphertext") or "")
+                nonce = str(data.get("nonce") or "")
+                if not msg_id or not ciphertext or not nonce:
+                    continue
+                async with AsyncSessionLocal() as db:
+                    try:
+                        u_res = await db.execute(select(User).where(User.id == user_id))
+                        actor = u_res.scalar_one()
+                        msg_out, member_ids = await update_live_location_message(
+                            db,
+                            actor=actor,
+                            message_id=msg_id,
+                            ciphertext=ciphertext,
+                            nonce=nonce,
+                        )
+                    except AppError as exc:
+                        await websocket.send_json(
+                            {
+                                "event": "error",
+                                "data": {
+                                    "code": exc.code,
+                                    "message": exc.message,
+                                    "message_id": msg_id,
+                                },
+                                "ts": now_iso,
+                            }
+                        )
+                        continue
+
+                await ws_manager.broadcast_to_users(
+                    member_ids,
+                    {
+                        "event": "location.live_updated",
+                        "data": msg_out.model_dump(mode="json"),
+                        "ts": now_iso,
+                    },
+                )
+
+            elif event_type == "location.live_stop":
+                msg_id = str(data.get("message_id") or "")
+                if not msg_id:
+                    continue
+                ct_opt = str(data["ciphertext"]) if data.get("ciphertext") else None
+                nonce_opt = str(data["nonce"]) if data.get("nonce") else None
+                async with AsyncSessionLocal() as db:
+                    try:
+                        u_res = await db.execute(select(User).where(User.id == user_id))
+                        actor = u_res.scalar_one()
+                        msg_out, member_ids = await stop_live_location_message(
+                            db,
+                            actor=actor,
+                            message_id=msg_id,
+                            ciphertext=ct_opt,
+                            nonce=nonce_opt,
+                        )
+                    except AppError:
+                        continue
+
+                await ws_manager.broadcast_to_users(
+                    member_ids,
+                    {
+                        "event": "location.live_stopped",
+                        "data": msg_out.model_dump(mode="json"),
+                        "ts": now_iso,
+                    },
+                )
+
+            elif event_type in (
+                "call.offer",
+                "call.answer",
+                "call.ice_candidate",
+                "call.hangup",
+                "call.decline",
+            ):
+                to_uid = str(data.get("to_user_id") or "")
+                to_gid = str(data.get("to_global_id") or "")
+                call_id = str(data.get("call_id") or "")
+                call_type = "video" if str(data.get("call_type")) == "video" else "voice"
+                async with AsyncSessionLocal() as db:
+                    try:
+                        actor_u = (
+                            await db.execute(select(User).where(User.id == user_id))
+                        ).scalar_one()
+                        target_u: User | None = None
+                        if to_uid:
+                            target_u = (
+                                await db.execute(select(User).where(User.id == to_uid))
+                            ).scalar_one_or_none()
+                        elif to_gid:
+                            target_u = await resolve_user_by_identifier(db, to_gid)
+                        if not target_u or target_u.id == actor_u.id:
+                            continue
+                        await assert_not_blocked_for_messaging(db, actor_u.id, [target_u.id])
+                        if target_u.is_local:
+                            await ws_manager.send_to_user(
+                                target_u.id,
+                                {
+                                    "event": event_type,
+                                    "data": {
+                                        "call_id": call_id,
+                                        "conversation_id": data.get("conversation_id"),
+                                        "call_type": call_type,
+                                        "from_user_id": actor_u.id,
+                                        "from_global_id": actor_u.global_id,
+                                        "from_display_name": actor_u.display_name,
+                                        "payload": data.get("payload") or {},
+                                    },
+                                    "ts": now_iso,
+                                },
+                            )
+                        else:
+                            await enqueue_federation_event(
+                                db,
+                                target_domain=target_u.domain,
+                                event_type="call.signal",
+                                data={
+                                    "signal_type": event_type,
+                                    "call_id": call_id,
+                                    "call_type": call_type,
+                                    "from_global_id": actor_u.global_id,
+                                    "to_global_id": target_u.global_id,
+                                    "payload": data.get("payload") or {},
+                                },
+                                commit=True,
+                            )
+                    except AppError:
+                        continue
 
     except WebSocketDisconnect:
         pass
@@ -286,3 +550,32 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 "ts": now.isoformat(),
                             },
                         )
+                        remote_peer_rows = (
+                            await db.execute(
+                                select(User).where(
+                                    User.id.in_(allowed_peers),
+                                    User.is_local.is_(False),
+                                )
+                            )
+                        ).scalars().all()
+                        by_dom_off: dict[str, list[str]] = {}
+                        for rpu in remote_peer_rows:
+                            by_dom_off.setdefault(rpu.domain.lower(), []).append(
+                                rpu.global_id
+                            )
+                        for dom, target_gids in by_dom_off.items():
+                            await enqueue_federation_event(
+                                db,
+                                target_domain=dom,
+                                event_type="presence",
+                                data={
+                                    "actor_global_id": user_global_id,
+                                    "is_online": False,
+                                    "last_seen_at": now.isoformat(),
+                                    "target_global_ids": target_gids,
+                                },
+                                commit=False,
+                            )
+                        if by_dom_off:
+                            await db.commit()
+                            trigger_outbox_wakeup()

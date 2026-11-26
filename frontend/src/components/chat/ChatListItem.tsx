@@ -148,6 +148,15 @@ export function ChatListItem({ chat, isActive, onSelect }: ChatListItemProps) {
                 aria-label="Pinned"
               />
             )}
+            {chat.hasUnreadMention && (
+              <span
+                data-testid="unread-mention-badge"
+                title="You were @mentioned in this group"
+                className="w-5 h-5 rounded-full bg-emerald-500 text-white text-[11px] font-bold inline-flex items-center justify-center shadow-xs"
+              >
+                @
+              </span>
+            )}
             {chat.unreadCount > 0 && (
               <span
                 style={{ backgroundColor: "var(--rc-accent)" }}

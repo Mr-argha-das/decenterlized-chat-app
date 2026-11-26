@@ -2,8 +2,11 @@
 
 import React from "react";
 import {
+  Archive,
   ArrowLeft,
   Ban,
+  Clock3,
+  Download,
   Info,
   Layers,
   MoreVertical,
@@ -33,6 +36,9 @@ export interface ChatHeaderProps {
   onSearchQueryChange: (q: string) => void;
   onTogglePin: () => void;
   onToggleMute: () => void;
+  onToggleArchive?: () => void;
+  onSetDisappearingTimer?: (seconds: number) => void;
+  onExportChat?: (format: "txt" | "json") => void;
   onToggleBlock?: () => void;
   onToggleTypingDemo?: () => void;
   onInjectThousandMessages?: () => void;
@@ -52,6 +58,9 @@ export function ChatHeader({
   onSearchQueryChange,
   onTogglePin,
   onToggleMute,
+  onToggleArchive,
+  onSetDisappearingTimer,
+  onExportChat,
   onToggleBlock,
   onToggleTypingDemo,
   onInjectThousandMessages,
@@ -112,6 +121,25 @@ export function ChatHeader({
                 >
                   {chat.name}
                 </span>
+                {!chat.isGroup && chat.globalId?.includes("@") && (
+                  <span className="hidden sm:inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#00a884]/15 text-[#00a884] shrink-0">
+                    @{chat.globalId.split("@")[1]}
+                  </span>
+                )}
+                {chat.disappearingTimerSeconds ? (
+                  <span
+                    data-testid="disappearing-timer-badge"
+                    className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 shrink-0"
+                    title="Disappearing messages active"
+                  >
+                    <Clock3 className="w-3 h-3" />
+                    {chat.disappearingTimerSeconds >= 604800
+                      ? "7d"
+                      : chat.disappearingTimerSeconds >= 86400
+                        ? "24h"
+                        : `${Math.round(chat.disappearingTimerSeconds / 60)}m`}
+                  </span>
+                ) : null}
                 <span
                   style={{ color: "var(--rc-text-muted)" }}
                   className="hidden lg:inline-block text-[11px] font-mono px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/5"
@@ -197,6 +225,59 @@ export function ChatHeader({
                 ),
                 onClick: onToggleMute,
               },
+              ...(onToggleArchive
+                ? [
+                    {
+                      id: "archive",
+                      label: chat.isArchived ? "Unarchive chat" : "Archive chat",
+                      icon: <Archive className="w-4 h-4 text-[#00a884]" />,
+                      onClick: onToggleArchive,
+                    },
+                  ]
+                : []),
+              ...(onSetDisappearingTimer
+                ? [
+                    {
+                      id: "disappear-toggle",
+                      label: chat.disappearingTimerSeconds
+                        ? "Disappearing messages: Turn Off"
+                        : "Disappearing messages: 24 hours",
+                      icon: <Clock3 className="w-4 h-4 text-amber-400" />,
+                      dividerBefore: true,
+                      onClick: () =>
+                        onSetDisappearingTimer(
+                          chat.disappearingTimerSeconds ? 0 : 86400
+                        ),
+                    },
+                    ...(!chat.disappearingTimerSeconds
+                      ? [
+                          {
+                            id: "disappear-7d",
+                            label: "Disappearing messages: 7 days",
+                            icon: <Clock3 className="w-4 h-4 text-amber-400" />,
+                            onClick: () => onSetDisappearingTimer(604800),
+                          },
+                        ]
+                      : []),
+                  ]
+                : []),
+              ...(onExportChat
+                ? [
+                    {
+                      id: "export-txt",
+                      label: "Export chat (.txt)",
+                      icon: <Download className="w-4 h-4 text-[#00a884]" />,
+                      dividerBefore: true,
+                      onClick: () => onExportChat("txt"),
+                    },
+                    {
+                      id: "export-json",
+                      label: "Export chat (.json)",
+                      icon: <Download className="w-4 h-4 text-[#00a884]" />,
+                      onClick: () => onExportChat("json"),
+                    },
+                  ]
+                : []),
               ...(onToggleBlock && !chat.isGroup
                 ? [
                     {

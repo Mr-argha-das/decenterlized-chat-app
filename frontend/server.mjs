@@ -66,7 +66,44 @@ const handle = app.getRequestHandler();
 
 await app.prepare();
 
+function proxyStreamingAttachments(req, res) {
+  const backendPort = backendInternal.port
+    ? parseInt(backendInternal.port, 10)
+    : backendInternal.protocol === "https:"
+      ? 443
+      : 80;
+
+  const headers = { ...req.headers, host: backendInternal.host };
+  const upstreamReq = http.request(
+    {
+      hostname: backendInternal.hostname,
+      port: backendPort,
+      path: req.url,
+      method: req.method,
+      headers,
+    },
+    (upstreamRes) => {
+      res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
+      upstreamRes.pipe(res);
+    }
+  );
+
+  upstreamReq.on("error", () => {
+    if (!res.headersSent) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+    }
+    res.end(JSON.stringify({ error: { code: "BAD_GATEWAY", message: "Backend unreachable" } }));
+  });
+
+  req.pipe(upstreamReq);
+}
+
 server.on("request", (req, res) => {
+  const pathname = (req.url || "").split("?")[0];
+  if (pathname === "/attachments" || pathname.startsWith("/attachments/")) {
+    proxyStreamingAttachments(req, res);
+    return;
+  }
   handle(req, res);
 });
 

@@ -354,6 +354,12 @@ async def search_users(
     q: Annotated[str, Query(max_length=100)] = "",
 ) -> list[PeerProfileViewOut]:
     cleaned = q.strip().lower()
+    if "@" in cleaned:
+        try:
+            await resolve_user_by_identifier(db, cleaned)
+        except AppError:
+            pass
+
     stmt = select(User).where(User.id != current_user.id)
     if cleaned:
         pattern = f"%{cleaned}%"

@@ -97,6 +97,8 @@ async def seed() -> None:
             res = await db.execute(select(User).where(User.global_id == global_id))
             existing = res.scalar_one_or_none()
             if existing:
+                if username == "rahul" and not existing.is_admin:
+                    existing.is_admin = True
                 created_users.append(existing)
                 continue
 
@@ -110,6 +112,7 @@ async def seed() -> None:
                 display_name=display_name,
                 about=about,
                 is_local=True,
+                is_admin=(username == "rahul"),
                 node_url=settings.NODE_PUBLIC_URL.rstrip("/"),
             )
             db.add(user)
