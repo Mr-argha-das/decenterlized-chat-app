@@ -1,0 +1,80 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: relaychat-mysql
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-relaychat_root_secret}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-relaychat}
+      MYSQL_USER: ${MYSQL_USER:-relaychat}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-relaychat_secret}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-relaychat_root_secret}"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: relaychat-api
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      APP_NAME: ${APP_NAME:-RelayChat}
+      APP_DOMAIN: ${APP_DOMAIN:-chatapp.in}
+      NODE_PUBLIC_URL: ${NODE_PUBLIC_URL:-http://localhost:8000}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      DATABASE_URL: ${DATABASE_URL:-mysql+aiomysql://relaychat:relaychat_secret@mysql:3306/relaychat}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-change-in-production-32bytes}
+      UPLOAD_SIGNING_SECRET: ${UPLOAD_SIGNING_SECRET:-dev-upload-signing-secret-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-relaychat_turn_shared_secret}
+      TURN_REALM: ${TURN_REALM:-chatapp.in}
+    ports:
+      - "8000:8000"
+    volumes:
+      - api_storage:/app/storage
+      - api_keys:/app/.node_keys
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: relaychat-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_APP_NAME: ${APP_NAME:-RelayChat}
+      NEXT_PUBLIC_APP_DOMAIN: ${APP_DOMAIN:-chatapp.in}
+      BACKEND_INTERNAL_URL: http://api:8000
+      NEXT_PUBLIC_STUN_URL: ${NEXT_PUBLIC_STUN_URL:-stun:localhost:3478}
+      NEXT_PUBLIC_TURN_URL: ${NEXT_PUBLIC_TURN_URL:-turn:localhost:3478}
+    ports:
+      - "3000:3000"
+
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    container_name: relaychat-coturn
+    restart: unless-stopped
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+
+volumes:
+  mysql_data:
+  api_storage:
+  api_keys:

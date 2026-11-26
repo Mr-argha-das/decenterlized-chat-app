@@ -1,0 +1,170 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --rc-app-backdrop: #d1d7db;
+  --rc-ribbon: #00a884;
+  --rc-sidebar-bg: #ffffff;
+  --rc-header-bg: #f0f2f5;
+  --rc-chat-bg: #efeae2;
+  --rc-composer-bg: #f0f2f5;
+  --rc-input-bg: #ffffff;
+  --rc-hover-bg: #f5f6f6;
+  --rc-active-bg: #f0f2f5;
+  --rc-surface-elevated: #ffffff;
+  --rc-border: #e9edef;
+  --rc-text-primary: #111b21;
+  --rc-text-secondary: #667781;
+  --rc-text-muted: #8696a0;
+  --rc-accent: #00a884;
+  --rc-accent-strong: #008069;
+  --rc-accent-soft: #d9fdd3;
+  --rc-bubble-out: #d9fdd3;
+  --rc-bubble-in: #ffffff;
+  --rc-bubble-quote: rgba(0, 0, 0, 0.05);
+  --rc-system-bg: #ffeecd;
+  --rc-system-text: #54656f;
+  --rc-date-bg: rgba(255, 255, 255, 0.92);
+  --rc-tick-read: #53bdeb;
+  --rc-tick-unread: #667781;
+  --rc-wallpaper-dot-a: rgba(17, 27, 33, 0.065);
+  --rc-wallpaper-dot-b: rgba(0, 168, 132, 0.055);
+}
+
+.dark {
+  --rc-app-backdrop: #0c1317;
+  --rc-ribbon: #005c4b;
+  --rc-sidebar-bg: #111b21;
+  --rc-header-bg: #202c33;
+  --rc-chat-bg: #0b141a;
+  --rc-composer-bg: #202c33;
+  --rc-input-bg: #2a3942;
+  --rc-hover-bg: #202c33;
+  --rc-active-bg: #2a3942;
+  --rc-surface-elevated: #233138;
+  --rc-border: #222d34;
+  --rc-text-primary: #e9edef;
+  --rc-text-secondary: #8696a0;
+  --rc-text-muted: #667781;
+  --rc-accent: #00a884;
+  --rc-accent-strong: #00a884;
+  --rc-accent-soft: #0a332c;
+  --rc-bubble-out: #005c4b;
+  --rc-bubble-in: #202c33;
+  --rc-bubble-quote: rgba(0, 0, 0, 0.24);
+  --rc-system-bg: #182229;
+  --rc-system-text: #ffd279;
+  --rc-date-bg: #182229;
+  --rc-tick-read: #53bdeb;
+  --rc-tick-unread: #8696a0;
+  --rc-wallpaper-dot-a: rgba(233, 237, 239, 0.045);
+  --rc-wallpaper-dot-b: rgba(0, 168, 132, 0.05);
+}
+
+@layer base {
+  body {
+    background-color: var(--rc-app-backdrop);
+    color: var(--rc-text-primary);
+    @apply antialiased selection:bg-[#00a884]/25;
+  }
+}
+
+/* Original subtle geometric chat wallpaper using CSS variables + 6 selectable presets */
+.rc-chat-wallpaper {
+  background-color: var(--rc-chat-bg);
+  background-image:
+    radial-gradient(var(--rc-wallpaper-dot-a) 1.25px, transparent 1.25px),
+    radial-gradient(var(--rc-wallpaper-dot-b) 1.25px, transparent 1.25px);
+  background-size: 28px 28px;
+  background-position: 0 0, 14px 14px;
+}
+
+html[data-wallpaper="emerald"] .rc-chat-wallpaper {
+  background-color: #d7f2e8;
+}
+html.dark[data-wallpaper="emerald"] .rc-chat-wallpaper {
+  background-color: #0b231e;
+}
+
+html[data-wallpaper="midnight"] .rc-chat-wallpaper {
+  background-color: #dbe7f6;
+}
+html.dark[data-wallpaper="midnight"] .rc-chat-wallpaper {
+  background-color: #0b1929;
+}
+
+html[data-wallpaper="sand"] .rc-chat-wallpaper {
+  background-color: #f3ead8;
+}
+html.dark[data-wallpaper="sand"] .rc-chat-wallpaper {
+  background-color: #211c15;
+}
+
+html[data-wallpaper="rose"] .rc-chat-wallpaper {
+  background-color: #f6e2e8;
+}
+html.dark[data-wallpaper="rose"] .rc-chat-wallpaper {
+  background-color: #24131a;
+}
+
+html[data-wallpaper="slate"] .rc-chat-wallpaper {
+  background-color: #e4e8ec;
+  background-image: none;
+}
+html.dark[data-wallpaper="slate"] .rc-chat-wallpaper {
+  background-color: #131c21;
+  background-image: none;
+}
+
+/* Custom slim scrollbars matching desktop messenger feel */
+.rc-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.rc-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.rc-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(134, 150, 160, 0.35);
+  border-radius: 9999px;
+}
+.rc-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(134, 150, 160, 0.55);
+}
+
+@keyframes rcPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.rc-animate-pop {
+  animation: rcPopIn 150ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes rcTypingDot {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.rc-typing-dot-1 {
+  animation: rcTypingDot 1.2s infinite ease-in-out 0ms;
+}
+.rc-typing-dot-2 {
+  animation: rcTypingDot 1.2s infinite ease-in-out 180ms;
+}
+.rc-typing-dot-3 {
+  animation: rcTypingDot 1.2s infinite ease-in-out 360ms;
+}

@@ -1,0 +1,48 @@
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+backend/.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.db
+*.sqlite3
+backend/storage/
+backend/.node_keys/
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/
+out/
+frontend/out/
+build/
+dist/
+.npm/
+.turbo/
+*.tsbuildinfo
+playwright-report/
+test-results/
+.playwright-cli/
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env.local
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+Unselected files/
