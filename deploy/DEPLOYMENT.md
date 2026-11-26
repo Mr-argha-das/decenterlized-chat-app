@@ -81,9 +81,11 @@ chmod +x scripts/*.sh
 docker compose -f docker-compose.caddy.yml up -d --build
 
 # 3. Append deploy/caddy/Caddyfile.relaychat to /etc/caddy/Caddyfile,
-#    validate, and reload Caddy with zero downtime:
+#    fix log ownership (running `caddy validate` as root creates log files as root:root!),
+#    and reload Caddy with zero downtime:
 cat deploy/caddy/Caddyfile.relaychat >> /etc/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile
+mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy
 systemctl reload caddy
 ```
 
