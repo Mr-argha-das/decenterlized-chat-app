@@ -8,7 +8,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG NEXT_PUBLIC_APP_NAME=RelayChat
-ARG NEXT_PUBLIC_APP_DOMAIN=chatapp.in
+ARG NEXT_PUBLIC_APP_DOMAIN=chatone.duckdns.org
 ARG BACKEND_INTERNAL_URL=http://backend:8000
 ARG NEXT_PUBLIC_STUN_URL=stun:stun.cloudflare.com:3478
 ARG NEXT_PUBLIC_TURN_URL=

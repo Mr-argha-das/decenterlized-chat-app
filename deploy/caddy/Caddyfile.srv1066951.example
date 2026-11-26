@@ -113,20 +113,12 @@ nexttogen.com, www.nexttogen.com {
 }
 
 # ==============================================================================
-# RelayChat Decentralized E2EE Messenger (Isolated on 127.0.0.1:3045 & :8045)
-# NOTE: Replace chatapp.in below with your actual domain!
+# RelayChat Decentralized E2EE Messenger — chatone.duckdns.org
+# Isolated on 127.0.0.1:3045 (Frontend) & 127.0.0.1:8045 (Backend + WS)
 # ==============================================================================
-http://www.chatapp.in {
-        redir https://chatapp.in{uri} permanent
-}
-
-www.chatapp.in {
-        redir https://chatapp.in{uri} permanent
-}
-
-chatapp.in {
+chatone.duckdns.org {
         header {
-                Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+                Strict-Transport-Security "max-age=31536000; includeSubDomains"
                 X-Content-Type-Options "nosniff"
                 X-Frame-Options "DENY"
                 Referrer-Policy "strict-origin-when-cross-origin"
@@ -175,7 +167,7 @@ chatapp.in {
         }
 
         log {
-                output file /var/log/caddy/relaychat.log {
+                output file /var/log/caddy/chatone.log {
                         roll_size 10MiB
                         roll_keep 10
                         roll_keep_for 720h

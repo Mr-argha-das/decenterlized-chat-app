@@ -73,15 +73,16 @@ If your VPS already runs **Caddy** on ports `80`/`443` and hosts other apps on p
 - **Isolated loopback ports**: Frontend binds only to `127.0.0.1:3045` and Backend binds only to `127.0.0.1:8045`.
 
 ```bash
-# 1. Generate production .env with strong random secrets for your domain
+# 1. Generate production .env with strong random secrets for chatone.duckdns.org
 chmod +x scripts/*.sh
-./scripts/setup_prod_env.sh YOUR_DOMAIN.COM
+./scripts/setup_prod_env.sh chatone.duckdns.org
 
 # 2. Build & start RelayChat containers in the background
 docker compose -f docker-compose.caddy.yml up -d --build
 
-# 3. Append deploy/caddy/Caddyfile.relaychat to /etc/caddy/Caddyfile
-#    (replace chatapp.in with YOUR_DOMAIN.COM), validate, and reload Caddy:
+# 3. Append deploy/caddy/Caddyfile.relaychat to /etc/caddy/Caddyfile,
+#    validate, and reload Caddy with zero downtime:
+cat deploy/caddy/Caddyfile.relaychat >> /etc/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile
 systemctl reload caddy
 ```

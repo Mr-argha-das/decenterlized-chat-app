@@ -60,10 +60,10 @@ services:
     environment:
       ENVIRONMENT: production
       APP_NAME: ${APP_NAME:-RelayChat}
-      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env (e.g. chatapp.in)}
-      NODE_PUBLIC_URL: https://${APP_DOMAIN}
-      FRONTEND_URL: https://${APP_DOMAIN}
-      CORS_ORIGINS: https://${APP_DOMAIN}
+      APP_DOMAIN: ${APP_DOMAIN:-chatone.duckdns.org}
+      NODE_PUBLIC_URL: https://${APP_DOMAIN:-chatone.duckdns.org}
+      FRONTEND_URL: https://${APP_DOMAIN:-chatone.duckdns.org}
+      CORS_ORIGINS: https://${APP_DOMAIN:-chatone.duckdns.org}
       COOKIE_SECURE: "true"
       COOKIE_SAMESITE: lax
       FEDERATION_ENABLED: "true"
@@ -74,12 +74,12 @@ services:
       UPLOAD_SIGNING_SECRET: ${UPLOAD_SIGNING_SECRET:?Set UPLOAD_SIGNING_SECRET in .env}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
-      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@chatapp.in}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@chatone.duckdns.org}
       CSP_ENABLED: "true"
       STRICT_FRAME_HEADERS: "true"
       FILE_SCANNER_ENABLED: "true"
       FILE_SCANNER_CMD: ${FILE_SCANNER_CMD:-}
-      TURN_REALM: ${APP_DOMAIN}
+      TURN_REALM: ${APP_DOMAIN:-chatone.duckdns.org}
       TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-relaychat_turn_shared_secret}
     ports:
       - "127.0.0.1:${RELAYCHAT_API_PORT:-8045}:8000"
@@ -98,7 +98,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_APP_NAME: ${APP_NAME:-RelayChat}
-        NEXT_PUBLIC_APP_DOMAIN: ${APP_DOMAIN}
+        NEXT_PUBLIC_APP_DOMAIN: ${APP_DOMAIN:-chatone.duckdns.org}
         BACKEND_INTERNAL_URL: http://backend:8000
         NEXT_PUBLIC_STUN_URL: ${NEXT_PUBLIC_STUN_URL:-stun:stun.cloudflare.com:3478}
         NEXT_PUBLIC_TURN_URL: ${NEXT_PUBLIC_TURN_URL:-}
@@ -112,7 +112,7 @@ services:
       PORT: "3000"
       BACKEND_INTERNAL_URL: http://backend:8000
       NEXT_PUBLIC_APP_NAME: ${APP_NAME:-RelayChat}
-      NEXT_PUBLIC_APP_DOMAIN: ${APP_DOMAIN}
+      NEXT_PUBLIC_APP_DOMAIN: ${APP_DOMAIN:-chatone.duckdns.org}
     ports:
       - "127.0.0.1:${RELAYCHAT_WEB_PORT:-3045}:3000"
     networks:

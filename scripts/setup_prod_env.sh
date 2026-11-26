@@ -3,12 +3,13 @@
 # RelayChat — 1-Command Production .env Generator (for Caddy / Docker VPS)
 # ==============================================================================
 # Usage:
-#   ./scripts/setup_prod_env.sh chatapp.in
+#   ./scripts/setup_prod_env.sh [domain]
+#   Default domain: chatone.duckdns.org
 # ==============================================================================
 
 set -euo pipefail
 
-DOMAIN="${1:-chatapp.in}"
+DOMAIN="${1:-chatone.duckdns.org}"
 ENV_FILE=".env"
 
 if [[ -f "${ENV_FILE}" ]]; then
